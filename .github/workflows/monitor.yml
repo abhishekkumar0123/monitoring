@@ -16,34 +16,53 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq golang
           go install github.com/projectdiscovery/httpx/cmd/httpx@latest
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
           echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Run httpx
         run: |
+          mkdir -p data
           echo "zerobounce.net" > targets.txt
-          "$HOME/go/bin/httpx" -l targets.txt -silent -o alive.txt
+          httpx -l targets.txt -silent -o alive.txt
 
       - name: Run nuclei
         run: |
-          "$HOME/go/bin/nuclei" -l alive.txt -severity medium,high,critical -o result.txt || true
+          nuclei -l alive.txt -severity medium,high,critical -silent -o nuclei_new.txt || true
 
-      - name: Send Telegram Alert (only if findings)
-        if: success()
+      - name: Compare & Telegram Alert
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          if [ -s result.txt ]; then
-            TIME=$(date '+%Y-%m-%d %H:%M')
-            MESSAGE="🚨 [Auto Monitoring] $TIME - NEW Nuclei Findings:\n$(head -n 20 result.txt | sed 's/&/%26/g')"
+          mkdir -p data
+          touch data/nuclei_old.txt
 
-            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d chat_id="${TELEGRAM_CHAT_ID}" \
-              --data-urlencode text="$MESSAGE"
+          NEW_DIFF=$(comm -13 <(sort data/nuclei_old.txt) <(sort nuclei_new.txt))
+
+          if [ -n "$NEW_DIFF" ]; then
+            MSG="🚨 *NEW NUCLEI FINDINGS*\n\n$NEW_DIFF"
+
+            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+              -d chat_id="$TELEGRAM_CHAT_ID" \
+              -d parse_mode=Markdown \
+              -d text="$MSG"
           else
-            echo "No findings, not sending Telegram message."
+            echo "No new findings"
           fi
+
+      - name: Update baseline
+        run: |
+          mkdir -p data
+          mv nuclei_new.txt data/nuclei_old.txt
+
+      - name: Commit updated data
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "bot@github.com"
+          git add data/nuclei_old.txt
+          git diff --cached --quiet || git commit -m "auto: update nuclei baseline"
+          git push
+
 

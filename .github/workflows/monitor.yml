@@ -37,7 +37,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [ -s result.txt ]; then
-            MESSAGE="🚨 Nuclei Alert!\n\n$(head -n 20 result.txt)"
+            TIME=$(date '+%Y-%m-%d %H:%M')
+            MESSAGE="🚨 [Auto Monitoring] $TIME - NEW Nuclei Findings:\n$(head -n 20 result.txt | sed 's/&/%26/g')"
 
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               -d chat_id="${TELEGRAM_CHAT_ID}" \
@@ -45,3 +46,4 @@ jobs:
           else
             echo "No findings, not sending Telegram message."
           fi
+

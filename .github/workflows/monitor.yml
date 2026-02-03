@@ -2,7 +2,7 @@ name: nuclei httpx monitoring
 
 on:
   schedule:
-    - cron: '0 * * * *' # har 1 ghante
+    - cron: '0 * * * *'  # Every hour
   workflow_dispatch:
 
 jobs:
@@ -39,17 +39,35 @@ jobs:
           mkdir -p data
           touch data/nuclei_old.txt
 
+          # Get new findings from nuclei
           NEW_DIFF=$(comm -13 <(sort data/nuclei_old.txt) <(sort nuclei_new.txt))
 
-          if [ -n "$NEW_DIFF" ]; then
-            MSG="🚨 *NEW NUCLEI FINDINGS*\n\n$NEW_DIFF"
+          # Initialize the message
+          MSG=""
 
+          # If there are new findings from Nuclei
+          if [ -n "$NEW_DIFF" ]; then
+            MSG="🚨 *Nuclei Monitoring Alert*\n\n$NEW_DIFF"
+          fi
+
+          # If there are alive targets from HTTPX
+          if [ -f alive.txt ] && [ -s alive.txt ]; then
+            httpx_results=$(cat alive.txt)
+            if [ -n "$MSG" ]; then
+              MSG="$MSG\n\n*HTTPX Monitoring Alert:*\n$httpx_results"
+            else
+              MSG="*HTTPX Monitoring Alert:*\n$httpx_results"
+            fi
+          fi
+
+          # If there are new findings, send a message
+          if [ -n "$MSG" ]; then
             curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
               -d chat_id="$TELEGRAM_CHAT_ID" \
               -d parse_mode=Markdown \
               -d text="$MSG"
           else
-            echo "No new findings"
+            echo "No new findings, no message sent."
           fi
 
       - name: Update baseline
@@ -64,5 +82,6 @@ jobs:
           git add data/nuclei_old.txt
           git diff --cached --quiet || git commit -m "auto: update nuclei baseline"
           git push
+
 
 
